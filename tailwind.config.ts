@@ -25,12 +25,24 @@ export default {
 				background: 'hsl(var(--background))',
 				foreground: 'hsl(var(--foreground))',
 				primary: {
-					DEFAULT: 'hsl(var(--primary))',
-					foreground: 'hsl(var(--primary-foreground))'
+					DEFAULT: '#FF6B35',
+					foreground: '#FFFFFF'
 				},
 				secondary: {
-					DEFAULT: 'hsl(var(--secondary))',
-					foreground: 'hsl(var(--secondary-foreground))'
+					DEFAULT: '#4ECDC4',
+					foreground: '#FFFFFF'
+				},
+				tertiary: {
+					DEFAULT: '#45B7D1',
+					foreground: '#FFFFFF'
+				},
+				game: {
+					arena: '#2C3E50',
+					player1: '#4ECDC4',
+					player2: '#FF6B35',
+					health: '#E74C3C',
+					shield: '#3498DB',
+					ammo: '#F39C12',
 				},
 				destructive: {
 					DEFAULT: 'hsl(var(--destructive))',
