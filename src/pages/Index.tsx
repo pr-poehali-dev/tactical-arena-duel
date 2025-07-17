@@ -5,8 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import Icon from '@/components/ui/icon';
 
 type GameState = 'menu' | 'lobby' | 'game';
-type ActionType = 'move' | 'attack' | 'defend' | null;
-type GamePhase = 'planning' | 'execution' | 'results';
+type ActionType = 'move' | 'attack' | 'defend' | 'reload' | null;
+type GamePhase = 'planning' | 'waiting' | 'execution' | 'results';
 
 type Player = {
   id: number;
@@ -14,11 +14,13 @@ type Player = {
   health: number;
   shields: number;
   ammo: number;
+  maxAmmo: number;
   position: { x: number; y: number };
   plannedAction?: {
     type: ActionType;
     targetPosition?: { x: number; y: number };
   };
+  actionConfirmed: boolean;
 };
 
 const Index = () => {
@@ -36,7 +38,9 @@ const Index = () => {
     health: 6,
     shields: 2,
     ammo: 3,
-    position: { x: 1, y: 1 }
+    maxAmmo: 6,
+    position: { x: 1, y: 1 },
+    actionConfirmed: false
   });
   
   const [player2, setPlayer2] = useState<Player>({
@@ -45,7 +49,9 @@ const Index = () => {
     health: 6,
     shields: 3,
     ammo: 3,
-    position: { x: 4, y: 1 }
+    maxAmmo: 6,
+    position: { x: 4, y: 1 },
+    actionConfirmed: false
   });
 
   // Проверка валидности хода
@@ -75,11 +81,17 @@ const Index = () => {
     return attacker.position.y === target.position.y && attacker.ammo > 0;
   };
 
+  // Проверка готовности обеих игроков
+  const checkBothPlayersReady = () => {
+    return player1.actionConfirmed && player2.actionConfirmed;
+  };
+
   // Обработка клика по клетке
   const handleCellClick = (x: number, y: number) => {
     if (gamePhase !== 'planning') return;
     
     const currentPlayer = activePlayer === 1 ? player1 : player2;
+    if (currentPlayer.actionConfirmed) return;
     
     if (selectedAction === 'move') {
       if (isValidMove(currentPlayer, x, y)) {
@@ -97,15 +109,6 @@ const Index = () => {
         }
         setSelectedAction(null);
         setShowValidMoves(false);
-        
-        // Переключаем на следующего игрока
-        if (activePlayer === 1) {
-          setActivePlayer(2);
-        } else {
-          // Оба игрока спланировали ходы
-          setGamePhase('execution');
-          executeActions();
-        }
       }
     }
   };
@@ -113,6 +116,7 @@ const Index = () => {
   // Планирование действия
   const planAction = (actionType: ActionType) => {
     const currentPlayer = activePlayer === 1 ? player1 : player2;
+    if (currentPlayer.actionConfirmed) return;
     
     if (actionType === 'move') {
       setSelectedAction('move');
@@ -134,14 +138,6 @@ const Index = () => {
             plannedAction: { type: 'attack' }
           }));
         }
-        
-        // Переключаем игрока
-        if (activePlayer === 1) {
-          setActivePlayer(2);
-        } else {
-          setGamePhase('execution');
-          executeActions();
-        }
       }
     }
     
@@ -158,16 +154,64 @@ const Index = () => {
             plannedAction: { type: 'defend' }
           }));
         }
-        
-        // Переключаем игрока
+      }
+    }
+
+    if (actionType === 'reload') {
+      if (currentPlayer.ammo < currentPlayer.maxAmmo) {
         if (activePlayer === 1) {
-          setActivePlayer(2);
+          setPlayer1(prev => ({
+            ...prev,
+            plannedAction: { type: 'reload' }
+          }));
         } else {
-          setGamePhase('execution');
-          executeActions();
+          setPlayer2(prev => ({
+            ...prev,
+            plannedAction: { type: 'reload' }
+          }));
         }
       }
     }
+  };
+
+  // Подтверждение действия
+  const confirmAction = () => {
+    const currentPlayer = activePlayer === 1 ? player1 : player2;
+    if (!currentPlayer.plannedAction) return;
+
+    if (activePlayer === 1) {
+      setPlayer1(prev => ({ ...prev, actionConfirmed: true }));
+    } else {
+      setPlayer2(prev => ({ ...prev, actionConfirmed: true }));
+    }
+
+    // Переключаем на другого игрока или переходим к ожиданию
+    if (activePlayer === 1 && !player2.actionConfirmed) {
+      setActivePlayer(2);
+    } else if (activePlayer === 2 && !player1.actionConfirmed) {
+      setActivePlayer(1);
+    } else {
+      // Оба игрока подтвердили действия
+      setGamePhase('waiting');
+      setTimeout(() => {
+        setGamePhase('execution');
+        executeActions();
+      }, 1000);
+    }
+  };
+
+  // Отмена действия
+  const cancelAction = () => {
+    const currentPlayer = activePlayer === 1 ? player1 : player2;
+    if (currentPlayer.actionConfirmed) return;
+
+    if (activePlayer === 1) {
+      setPlayer1(prev => ({ ...prev, plannedAction: undefined }));
+    } else {
+      setPlayer2(prev => ({ ...prev, plannedAction: undefined }));
+    }
+    setSelectedAction(null);
+    setShowValidMoves(false);
   };
 
   // Выполнение всех запланированных действий
@@ -187,7 +231,20 @@ const Index = () => {
       log.push(`${newPlayer2.name} переместился на позицию (${newPlayer2.position.x + 1}, ${newPlayer2.position.y + 1})`);
     }
 
-    // Фаза 2: Защита
+    // Фаза 2: Перезарядка
+    if (newPlayer1.plannedAction?.type === 'reload') {
+      const reloadAmount = Math.min(2, newPlayer1.maxAmmo - newPlayer1.ammo);
+      newPlayer1.ammo += reloadAmount;
+      log.push(`${newPlayer1.name} перезарядил оружие (+${reloadAmount} патронов)`);
+    }
+
+    if (newPlayer2.plannedAction?.type === 'reload') {
+      const reloadAmount = Math.min(2, newPlayer2.maxAmmo - newPlayer2.ammo);
+      newPlayer2.ammo += reloadAmount;
+      log.push(`${newPlayer2.name} перезарядил оружие (+${reloadAmount} патронов)`);
+    }
+
+    // Фаза 3: Защита
     if (newPlayer1.plannedAction?.type === 'defend') {
       log.push(`${newPlayer1.name} поднял щит`);
     }
@@ -196,7 +253,7 @@ const Index = () => {
       log.push(`${newPlayer2.name} поднял щит`);
     }
 
-    // Фаза 3: Атаки
+    // Фаза 4: Атаки
     if (newPlayer1.plannedAction?.type === 'attack' && canAttack(newPlayer1, newPlayer2)) {
       newPlayer1.ammo--;
       if (newPlayer2.plannedAction?.type === 'defend' && newPlayer2.shields > 0) {
@@ -205,6 +262,13 @@ const Index = () => {
       } else {
         newPlayer2.health--;
         log.push(`${newPlayer1.name} попал по ${newPlayer2.name}! Урон: 1`);
+      }
+    } else if (newPlayer1.plannedAction?.type === 'attack') {
+      if (newPlayer1.ammo <= 0) {
+        log.push(`${newPlayer1.name} попытался атаковать, но нет патронов!`);
+      } else {
+        log.push(`${newPlayer1.name} выстрелил в пустоту - противник не на линии огня`);
+        newPlayer1.ammo--;
       }
     }
     
@@ -217,11 +281,20 @@ const Index = () => {
         newPlayer1.health--;
         log.push(`${newPlayer2.name} попал по ${newPlayer1.name}! Урон: 1`);
       }
+    } else if (newPlayer2.plannedAction?.type === 'attack') {
+      if (newPlayer2.ammo <= 0) {
+        log.push(`${newPlayer2.name} попытался атаковать, но нет патронов!`);
+      } else {
+        log.push(`${newPlayer2.name} выстрелил в пустоту - противник не на линии огня`);
+        newPlayer2.ammo--;
+      }
     }
 
-    // Очищаем запланированные действия
+    // Очищаем запланированные действия и сбрасываем подтверждения
     newPlayer1.plannedAction = undefined;
     newPlayer2.plannedAction = undefined;
+    newPlayer1.actionConfirmed = false;
+    newPlayer2.actionConfirmed = false;
 
     setPlayer1(newPlayer1);
     setPlayer2(newPlayer2);
@@ -231,18 +304,22 @@ const Index = () => {
     // Проверка победы
     if (newPlayer1.health <= 0) {
       log.push(`🏆 ${newPlayer2.name} победил!`);
+      setExecutionLog([...log]);
+      return;
     } else if (newPlayer2.health <= 0) {
       log.push(`🏆 ${newPlayer1.name} победил!`);
+      setExecutionLog([...log]);
+      return;
     }
 
     // Переход к следующему ходу через 3 секунды
     setTimeout(() => {
-      if (newPlayer1.health > 0 && newPlayer2.health > 0) {
-        setCurrentTurn(prev => prev + 1);
-        setActivePlayer(1);
-        setGamePhase('planning');
-        setExecutionLog([]);
-      }
+      setCurrentTurn(prev => prev + 1);
+      setActivePlayer(1);
+      setGamePhase('planning');
+      setExecutionLog([]);
+      setSelectedAction(null);
+      setShowValidMoves(false);
     }, 3000);
   };
 
@@ -375,13 +452,19 @@ const Index = () => {
                   <img 
                     src="/img/cf572254-80d0-4da6-9dbe-38d034741f13.jpg" 
                     alt="Player 1" 
-                    className="w-12 h-12 rounded-full border-2 border-secondary"
+                    className={`w-12 h-12 rounded-full border-2 ${player1.actionConfirmed ? 'border-green-500' : 'border-secondary'}`}
                   />
                   {player1.plannedAction && (
                     <div className="absolute -top-2 -right-2 text-xs bg-secondary text-white rounded-full w-5 h-5 flex items-center justify-center">
                       {player1.plannedAction.type === 'move' && '🏃'}
                       {player1.plannedAction.type === 'attack' && '⚔️'}
                       {player1.plannedAction.type === 'defend' && '🛡️'}
+                      {player1.plannedAction.type === 'reload' && '🔄'}
+                    </div>
+                  )}
+                  {player1.actionConfirmed && (
+                    <div className="absolute -bottom-2 -right-2 text-xs bg-green-500 text-white rounded-full w-4 h-4 flex items-center justify-center">
+                      ✓
                     </div>
                   )}
                 </div>
@@ -391,13 +474,19 @@ const Index = () => {
                   <img 
                     src="/img/8a95a4a6-d5ad-4f69-8b19-8645a0c4f54a.jpg" 
                     alt="Player 2" 
-                    className="w-12 h-12 rounded-full border-2 border-primary"
+                    className={`w-12 h-12 rounded-full border-2 ${player2.actionConfirmed ? 'border-green-500' : 'border-primary'}`}
                   />
                   {player2.plannedAction && (
                     <div className="absolute -top-2 -right-2 text-xs bg-primary text-white rounded-full w-5 h-5 flex items-center justify-center">
                       {player2.plannedAction.type === 'move' && '🏃'}
                       {player2.plannedAction.type === 'attack' && '⚔️'}
                       {player2.plannedAction.type === 'defend' && '🛡️'}
+                      {player2.plannedAction.type === 'reload' && '🔄'}
+                    </div>
+                  )}
+                  {player2.actionConfirmed && (
+                    <div className="absolute -bottom-2 -right-2 text-xs bg-green-500 text-white rounded-full w-4 h-4 flex items-center justify-center">
+                      ✓
                     </div>
                   )}
                 </div>
@@ -416,7 +505,14 @@ const Index = () => {
 
     const getPhaseText = () => {
       if (gamePhase === 'planning') {
-        return `Ход ${currentTurn} • ${activePlayer === 1 ? player1.name : player2.name} планирует`;
+        const currentPlayer = activePlayer === 1 ? player1 : player2;
+        if (currentPlayer.actionConfirmed) {
+          return `Ход ${currentTurn} • Ожидание ${activePlayer === 1 ? player2.name : player1.name}`;
+        }
+        return `Ход ${currentTurn} • ${currentPlayer.name} планирует`;
+      }
+      if (gamePhase === 'waiting') {
+        return `Ход ${currentTurn} • Подготовка к выполнению`;
       }
       if (gamePhase === 'execution') {
         return `Ход ${currentTurn} • Выполнение действий`;
@@ -426,6 +522,9 @@ const Index = () => {
       }
     };
 
+    const currentPlayer = activePlayer === 1 ? player1 : player2;
+    const canConfirmAction = currentPlayer.plannedAction && !currentPlayer.actionConfirmed;
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-700 p-4">
         <div className="max-w-6xl mx-auto">
@@ -434,12 +533,30 @@ const Index = () => {
               onClick={() => {
                 setGameState('lobby');
                 // Сброс игры
-                setPlayer1(prev => ({ ...prev, health: 6, shields: 2, ammo: 3, position: { x: 1, y: 1 }, plannedAction: undefined }));
-                setPlayer2(prev => ({ ...prev, health: 6, shields: 3, ammo: 3, position: { x: 4, y: 1 }, plannedAction: undefined }));
+                setPlayer1(prev => ({ 
+                  ...prev, 
+                  health: 6, 
+                  shields: 2, 
+                  ammo: 3, 
+                  position: { x: 1, y: 1 }, 
+                  plannedAction: undefined,
+                  actionConfirmed: false 
+                }));
+                setPlayer2(prev => ({ 
+                  ...prev, 
+                  health: 6, 
+                  shields: 3, 
+                  ammo: 3, 
+                  position: { x: 4, y: 1 }, 
+                  plannedAction: undefined,
+                  actionConfirmed: false 
+                }));
                 setCurrentTurn(1);
                 setActivePlayer(1);
                 setGamePhase('planning');
                 setExecutionLog([]);
+                setSelectedAction(null);
+                setShowValidMoves(false);
               }} 
               variant="outline"
               className="text-white border-white hover:bg-white hover:text-gray-900"
@@ -471,11 +588,12 @@ const Index = () => {
 
           <div className="grid lg:grid-cols-12 gap-6">
             {/* Player 1 Stats */}
-            <Card className={`lg:col-span-3 shadow-xl border-0 bg-secondary/10 border-secondary ${activePlayer === 1 && gamePhase === 'planning' ? 'ring-4 ring-secondary' : ''}`}>
+            <Card className={`lg:col-span-3 shadow-xl border-0 bg-secondary/10 border-secondary ${activePlayer === 1 && gamePhase === 'planning' && !player1.actionConfirmed ? 'ring-4 ring-secondary' : ''}`}>
               <CardHeader>
                 <CardTitle className="text-secondary flex items-center">
                   🤖 {player1.name}
-                  {activePlayer === 1 && gamePhase === 'planning' && <span className="ml-2 text-xs">• Ход</span>}
+                  {activePlayer === 1 && gamePhase === 'planning' && !player1.actionConfirmed && <span className="ml-2 text-xs">• Ход</span>}
+                  {player1.actionConfirmed && <span className="ml-2 text-xs text-green-500">✓ Готов</span>}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -495,13 +613,14 @@ const Index = () => {
                   <span className="flex items-center">
                     <span className="text-game-ammo mr-1">⚫</span> Патроны
                   </span>
-                  <Badge className="bg-game-ammo">{player1.ammo}</Badge>
+                  <Badge className="bg-game-ammo">{player1.ammo}/{player1.maxAmmo}</Badge>
                 </div>
                 {player1.plannedAction && (
                   <div className="text-xs bg-secondary/20 p-2 rounded">
                     Запланировано: {player1.plannedAction.type === 'move' && 'Движение'}
                     {player1.plannedAction.type === 'attack' && 'Атака'}
                     {player1.plannedAction.type === 'defend' && 'Защита'}
+                    {player1.plannedAction.type === 'reload' && 'Перезарядка'}
                   </div>
                 )}
               </CardContent>
@@ -515,12 +634,12 @@ const Index = () => {
                     {renderGrid()}
                   </div>
                   
-                  {gamePhase === 'planning' && (
+                  {gamePhase === 'planning' && !currentPlayer.actionConfirmed && (
                     <div className="border-t pt-4">
                       <h3 className="font-bold mb-3">
-                        Действия {activePlayer === 1 ? player1.name : player2.name}
+                        Действия {currentPlayer.name}
                       </h3>
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-4 gap-3 mb-4">
                         <Button 
                           variant={selectedAction === 'move' ? 'default' : 'outline'} 
                           className="h-16 flex-col"
@@ -533,7 +652,7 @@ const Index = () => {
                           variant="outline" 
                           className="h-16 flex-col"
                           onClick={() => planAction('attack')}
-                          disabled={(activePlayer === 1 ? player1.ammo : player2.ammo) === 0}
+                          disabled={currentPlayer.ammo === 0}
                         >
                           <Icon name="Zap" className="mb-1" />
                           Атака
@@ -542,15 +661,58 @@ const Index = () => {
                           variant="outline" 
                           className="h-16 flex-col"
                           onClick={() => planAction('defend')}
-                          disabled={(activePlayer === 1 ? player1.shields : player2.shields) === 0}
+                          disabled={currentPlayer.shields === 0}
                         >
                           <Icon name="Shield" className="mb-1" />
                           Защита
                         </Button>
+                        <Button 
+                          variant="outline" 
+                          className="h-16 flex-col"
+                          onClick={() => planAction('reload')}
+                          disabled={currentPlayer.ammo >= currentPlayer.maxAmmo}
+                        >
+                          <Icon name="RotateCcw" className="mb-1" />
+                          Перезарядка
+                        </Button>
+                      </div>
+                      
+                      <div className="flex gap-3">
+                        <Button 
+                          className="flex-1 bg-primary hover:bg-primary/90 h-12"
+                          onClick={confirmAction}
+                          disabled={!canConfirmAction}
+                        >
+                          <Icon name="Check" className="mr-2" />
+                          Подтвердить действие
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          className="h-12"
+                          onClick={cancelAction}
+                          disabled={!currentPlayer.plannedAction}
+                        >
+                          <Icon name="X" className="mr-2" />
+                          Отмена
+                        </Button>
                       </div>
                     </div>
                   )}
+
+                  {gamePhase === 'planning' && currentPlayer.actionConfirmed && (
+                    <div className="border-t pt-4 text-center">
+                      <div className="text-lg font-bold mb-2 text-green-600">Действие подтверждено</div>
+                      <div className="text-sm text-gray-600">Ожидание противника...</div>
+                    </div>
+                  )}
                   
+                  {gamePhase === 'waiting' && (
+                    <div className="border-t pt-4 text-center">
+                      <div className="text-lg font-bold mb-2">Подготовка к выполнению...</div>
+                      <div className="text-sm text-gray-600">Оба игрока готовы</div>
+                    </div>
+                  )}
+
                   {gamePhase === 'execution' && (
                     <div className="border-t pt-4 text-center">
                       <div className="text-lg font-bold mb-2">Выполнение действий...</div>
@@ -562,11 +724,12 @@ const Index = () => {
             </div>
 
             {/* Player 2 Stats */}
-            <Card className={`lg:col-span-3 shadow-xl border-0 bg-primary/10 border-primary ${activePlayer === 2 && gamePhase === 'planning' ? 'ring-4 ring-primary' : ''}`}>
+            <Card className={`lg:col-span-3 shadow-xl border-0 bg-primary/10 border-primary ${activePlayer === 2 && gamePhase === 'planning' && !player2.actionConfirmed ? 'ring-4 ring-primary' : ''}`}>
               <CardHeader>
                 <CardTitle className="text-primary flex items-center">
                   🦾 {player2.name}
-                  {activePlayer === 2 && gamePhase === 'planning' && <span className="ml-2 text-xs">• Ход</span>}
+                  {activePlayer === 2 && gamePhase === 'planning' && !player2.actionConfirmed && <span className="ml-2 text-xs">• Ход</span>}
+                  {player2.actionConfirmed && <span className="ml-2 text-xs text-green-500">✓ Готов</span>}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -586,13 +749,14 @@ const Index = () => {
                   <span className="flex items-center">
                     <span className="text-game-ammo mr-1">⚫</span> Патроны
                   </span>
-                  <Badge className="bg-game-ammo">{player2.ammo}</Badge>
+                  <Badge className="bg-game-ammo">{player2.ammo}/{player2.maxAmmo}</Badge>
                 </div>
                 {player2.plannedAction && (
                   <div className="text-xs bg-primary/20 p-2 rounded">
                     Запланировано: {player2.plannedAction.type === 'move' && 'Движение'}
                     {player2.plannedAction.type === 'attack' && 'Атака'}
                     {player2.plannedAction.type === 'defend' && 'Защита'}
+                    {player2.plannedAction.type === 'reload' && 'Перезарядка'}
                   </div>
                 )}
               </CardContent>
